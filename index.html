@@ -281,88 +281,104 @@
         </div>
     </footer>
 
-    <script>
-        // Importante: Substitua este valor pela sua URL real gerada na Implantação do Google Apps Script
-        const URL_GAS = "https://script.google.com/macros/s/AKfycbw34c6NO0mbDJ9JukUOkIh2SAl9Q-wB0LK4jdx1D69X4ilO5jYBqKrGKijERNWztHCJ/exec";
+   <script>
+    // URL da Web App do Google Apps Script
+    const URL_GAS = "https://script.google.com/macros/s/AKfycbw34c6NO0mbDJ9JukUOkIh2SAl9Q-wB0LK4jdx1D69X4ilO5jYBqKrGKijERNWztHCJ/exec";
 
-        function atualizarPainel() {
-            fetch(URL_GAS)
-                .then(response => response.json())
-                .then(data => {
-                    // Verifica se já existem dados recebidos do servidor local
-                    if (data.mensagem) {
-                        document.getElementById('tabela_vagas').innerHTML = `
-                            <tr><td colspan="5" style="text-align:center;">${data.mensagem}</td></tr>
+    function atualizarPainel() {
+        // 'redirect: follow' é obrigatório para lidar com o redirecionamento 302 do GAS
+        fetch(URL_GAS, { method: 'GET', redirect: 'follow' })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`Erro na resposta da rede: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                // Se a resposta vier como string codificada no cache, faz o parse para Objeto
+                if (typeof data === 'string') {
+                    try {
+                        data = JSON.parse(data);
+                    } catch (e) {
+                        console.error('Erro ao converter payload JSON:', e);
+                    }
+                }
+
+                // Trata mensagens de estado inicial/espera do GAS
+                if (data.mensagem) {
+                    document.getElementById('tabela_vagas').innerHTML = `
+                        <tr><td colspan="5" style="text-align:center;">${data.mensagem}</td></tr>
+                    `;
+                    return;
+                }
+
+                // Atualização das Métricas Globais (kW)
+                let consumoKW = ((data.consumo_atual_w || 0) / 1000.0).toFixed(2);
+                let limiteKW = ((data.limite_geral_w || 0) / 1000.0).toFixed(2);
+                
+                document.getElementById('txt_consumo').innerText = consumoKW;
+                document.getElementById('txt_limite').innerText = limiteKW;
+
+                // Processamento dos Dados das Estações
+                if (data.vagas) {
+                    let totalEstacoes = Object.keys(data.vagas).length;
+                    let recarregandoCount = 0;
+                    let correnteCorrente = 32;
+                    let htmlTabela = '';
+
+                    const estadosAtivos = ["Charging", "Preparing"];
+
+                    for (let idHW in data.vagas) {
+                        let vaga = data.vagas[idHW];
+                        let status = vaga.status || "Available";
+                        
+                        let estaCarregando = estadosAtivos.includes(status);
+                        
+                        if (estaCarregando) {
+                            recarregandoCount++;
+                            correnteCorrente = vaga.corrente_alvo_a || 32;
+                        }
+
+                        let badgeClass = "badge-offline";
+                        if (status === "Charging") {
+                            badgeClass = "badge-charging";
+                        } else if (status === "Available") {
+                            badgeClass = "badge-available";
+                        }
+
+                        htmlTabela += `
+                            <tr>
+                                <td><strong>${vaga.filtro_planilha || idHW}</strong></td>
+                                <td><code>${idHW}</code></td>
+                                <td><span class="badge-status ${badgeClass}">${status}</span></td>
+                                <td><strong>${vaga.corrente_alvo_a || 32} A</strong></td>
+                                <td>${(vaga.consumo_acumulado || 0.0).toFixed(2)} kWh</td>
+                            </tr>
                         `;
-                        return;
                     }
 
-                    // Métricas Principais
-                    let consumoKW = ( (data.consumo_atual_w || 0) / 1000.0 ).toFixed(2);
-                    let limiteKW = ( (data.limite_geral_w || 0) / 1000.0 ).toFixed(2);
-                    
-                    document.getElementById('txt_consumo').innerText = consumoKW;
-                    document.getElementById('txt_limite').innerText = limiteKW;
+                    // Atualiza o card de resumo DLB
+                    document.getElementById('txt_carregando').innerText = `${recarregandoCount}/${totalEstacoes}`;
+                    document.getElementById('txt_corrente').innerText = recarregandoCount > 0 ? correnteCorrente : 0;
 
-                    // Atualiza a tabela detalhada e o indicador de distribuição
-                    if (data.vagas) {
-                        let totalEstacoes = Object.keys(data.vagas).length;
-                        let recarregandoCount = 0;
-                        let correnteCorrente = 32;
-                        let htmlTabela = '';
-
-                        // Considera APENAS as estações que estão ativamente injetando energia no veículo
-                        const estadosAtivos = ["Charging"];
-
-                        for (let idHW in data.vagas) {
-                            let vaga = data.vagas[idHW];
-                            let status = vaga.status || "Available";
-                            
-                            let estaCarregando = estadosAtivos.includes(status);
-                            
-                            if (estaCarregando) {
-                                recarregandoCount++;
-                                correnteCorrente = vaga.corrente_alvo_a || 32;
-                            }
-
-                            let badgeClass = "badge-offline";
-                            if (status === "Charging") {
-                                badgeClass = "badge-charging";
-                            } else if (status === "Available") {
-                                badgeClass = "badge-available";
-                            }
-
-                            htmlTabela += `
-                                <tr>
-                                    <td><strong>${vaga.filtro_planilha || idHW}</strong></td>
-                                    <td><code>${idHW}</code></td>
-                                    <td><span class="badge-status ${badgeClass}">${status}</span></td>
-                                    <td><strong>${vaga.corrente_alvo_a || 32} A</strong></td>
-                                    <td>${(vaga.consumo_acumulado || 0.0).toFixed(2)} kWh</td>
-                                </tr>
-                            `;
-                        }
-
-                        document.getElementById('txt_carregando').innerText = `${recarregandoCount}/${totalEstacoes}`;
-                        document.getElementById('txt_corrente').innerText = recarregandoCount > 0 ? correnteCorrente : 0;
-
-                        if (totalEstacoes > 0) {
-                            document.getElementById('tabela_vagas').innerHTML = htmlTabela;
-                        } else {
-                            document.getElementById('tabela_vagas').innerHTML = `
-                                <tr><td colspan="5" style="text-align:center;">Nenhuma estação cadastrada no momento.</td></tr>
-                            `;
-                        }
+                    // Renderiza a tabela no DOM
+                    if (totalEstacoes > 0) {
+                        document.getElementById('tabela_vagas').innerHTML = htmlTabela;
+                    } else {
+                        document.getElementById('tabela_vagas').innerHTML = `
+                            <tr><td colspan="5" style="text-align:center;">Nenhuma estação cadastrada no momento.</td></tr>
+                        `;
                     }
-                })
-                .catch(error => {
-                    console.error('Erro ao conectar com a API do Google Apps Script:', error);
-                });
-        }
+                }
+            })
+            .catch(error => {
+                console.error('Erro de conexão/sincronização com o Google Apps Script:', error);
+            });
+    }
 
-        // Atualiza o painel a cada 10 segundos
-        setInterval(atualizarPainel, 10000);
-        atualizarPainel();
-    </script>
+    // Executa a busca imediatamente e agenda a atualização a cada 10 segundos
+    setInterval(atualizarPainel, 10000);
+    atualizarPainel();
+</script>
 </body>
 </html>
