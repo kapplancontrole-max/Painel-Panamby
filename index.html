@@ -81,6 +81,32 @@
             100% { opacity: 0.4; }
         }
 
+        /* Indicador LED para Wallbox */
+        .wallbox-name {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .led-indicator {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            display: inline-block;
+            flex-shrink: 0;
+        }
+
+        .led-online {
+            background-color: #28a745;
+            box-shadow: 0 0 8px rgba(40, 167, 69, 0.6);
+            animation: pulse 2s infinite;
+        }
+
+        .led-offline {
+            background-color: #dc3545;
+            box-shadow: 0 0 6px rgba(220, 53, 69, 0.4);
+        }
+
         /* Painel Dashboard */
         .dashboard {
             display: flex;
@@ -174,6 +200,7 @@
             font-size: 12px;
         }
 
+        /* Badges de Status */
         .badge-status {
             display: inline-block;
             padding: 4px 12px;
@@ -190,6 +217,11 @@
         .badge-available {
             background-color: #e0f2fe;
             color: #075985;
+        }
+
+        .badge-suspended {
+            background-color: #fef3c7;
+            color: #92400e;
         }
 
         .badge-offline {
@@ -256,11 +288,11 @@
                 <table>
                     <thead>
                         <tr>
-                            <th>Identificação</th>
-                            <th>ID OCPP (Hardware)</th>
-                            <th>Status Conector</th>
-                            <th>Corrente Limite (DLB)</th>
-                            <th>Consumo Total (kWh)</th>
+                            <th scope="col">Identificação</th>
+                            <th scope="col">ID OCPP (Hardware)</th>
+                            <th scope="col">Status Conector</th>
+                            <th scope="col">Corrente Limite (DLB)</th>
+                            <th scope="col">Consumo Total (kWh)</th>
                         </tr>
                     </thead>
                     <tbody id="tabela_vagas">
@@ -281,104 +313,129 @@
         </div>
     </footer>
 
-   <script>
-    // URL da Web App do Google Apps Script
-    const URL_GAS = "https://script.google.com/macros/s/AKfycbw34c6NO0mbDJ9JukUOkIh2SAl9Q-wB0LK4jdx1D69X4ilO5jYBqKrGKijERNWztHCJ/exec";
+    <script>
+        // URL da Web App do Google Apps Script
+        const URL_GAS = "https://script.google.com/macros/s/AKfycbw34c6NO0mbDJ9JukUOkIh2SAl9Q-wB0LK4jdx1D69X4ilO5jYBqKrGKijERNWztHCJ/exec";
 
-    function atualizarPainel() {
-        // 'redirect: follow' é obrigatório para lidar com o redirecionamento 302 do GAS
-        fetch(URL_GAS, { method: 'GET', redirect: 'follow' })
-            .then(response => {
-                if (!response.ok) {
-                    throw new Error(`Erro na resposta da rede: ${response.status}`);
-                }
-                return response.json();
-            })
-            .then(data => {
-                // Se a resposta vier como string codificada no cache, faz o parse para Objeto
-                if (typeof data === 'string') {
-                    try {
-                        data = JSON.parse(data);
-                    } catch (e) {
-                        console.error('Erro ao converter payload JSON:', e);
+        function escapeHTML(str) {
+            return String(str).replace(/[&<>"']/g, match => ({
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#39;'
+            }[match]));
+        }
+
+        function atualizarPainel() {
+            // 'redirect: follow' é obrigatório para lidar com o redirecionamento 302 do GAS
+            fetch(URL_GAS, { method: 'GET', redirect: 'follow' })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`Erro na resposta da rede: ${response.status}`);
                     }
-                }
-
-                // Trata mensagens de estado inicial/espera do GAS
-                if (data.mensagem) {
-                    document.getElementById('tabela_vagas').innerHTML = `
-                        <tr><td colspan="5" style="text-align:center;">${data.mensagem}</td></tr>
-                    `;
-                    return;
-                }
-
-                // Atualização das Métricas Globais (kW)
-                let consumoKW = ((data.consumo_atual_w || 0) / 1000.0).toFixed(2);
-                let limiteKW = ((data.limite_geral_w || 0) / 1000.0).toFixed(2);
-                
-                document.getElementById('txt_consumo').innerText = consumoKW;
-                document.getElementById('txt_limite').innerText = limiteKW;
-
-                // Processamento dos Dados das Estações
-                if (data.vagas) {
-                    let totalEstacoes = Object.keys(data.vagas).length;
-                    let recarregandoCount = 0;
-                    let correnteCorrente = 32;
-                    let htmlTabela = '';
-
-                    const estadosAtivos = ["Charging", "Preparing"];
-
-                    for (let idHW in data.vagas) {
-                        let vaga = data.vagas[idHW];
-                        let status = vaga.status || "Available";
-                        
-                        let estaCarregando = estadosAtivos.includes(status);
-                        
-                        if (estaCarregando) {
-                            recarregandoCount++;
-                            correnteCorrente = vaga.corrente_alvo_a || 32;
+                    return response.json();
+                })
+                .then(data => {
+                    // Se a resposta vier como string codificada no cache, faz o parse para Objeto
+                    if (typeof data === 'string') {
+                        try {
+                            data = JSON.parse(data);
+                        } catch (e) {
+                            console.error('Erro ao converter payload JSON:', e);
                         }
-
-                        let badgeClass = "badge-offline";
-                        if (status === "Charging") {
-                            badgeClass = "badge-charging";
-                        } else if (status === "Available") {
-                            badgeClass = "badge-available";
-                        }
-
-                        htmlTabela += `
-                            <tr>
-                                <td><strong>${vaga.filtro_planilha || idHW}</strong></td>
-                                <td><code>${idHW}</code></td>
-                                <td><span class="badge-status ${badgeClass}">${status}</span></td>
-                                <td><strong>${vaga.corrente_alvo_a || 32} A</strong></td>
-                                <td>${(vaga.consumo_acumulado || 0.0).toFixed(2)} kWh</td>
-                            </tr>
-                        `;
                     }
 
-                    // Atualiza o card de resumo DLB
-                    document.getElementById('txt_carregando').innerText = `${recarregandoCount}/${totalEstacoes}`;
-                    document.getElementById('txt_corrente').innerText = recarregandoCount > 0 ? correnteCorrente : 0;
-
-                    // Renderiza a tabela no DOM
-                    if (totalEstacoes > 0) {
-                        document.getElementById('tabela_vagas').innerHTML = htmlTabela;
-                    } else {
+                    // Trata mensagens de estado inicial/espera do GAS
+                    if (data.mensagem) {
                         document.getElementById('tabela_vagas').innerHTML = `
-                            <tr><td colspan="5" style="text-align:center;">Nenhuma estação cadastrada no momento.</td></tr>
+                            <tr><td colspan="5" style="text-align:center;">${escapeHTML(data.mensagem)}</td></tr>
                         `;
+                        return;
                     }
-                }
-            })
-            .catch(error => {
-                console.error('Erro de conexão/sincronização com o Google Apps Script:', error);
-            });
-    }
 
-    // Executa a busca imediatamente e agenda a atualização a cada 10 segundos
-    setInterval(atualizarPainel, 10000);
-    atualizarPainel();
-</script>
+                    // Atualização das Métricas Globais (kW)
+                    let consumoKW = ((data.consumo_atual_w || 0) / 1000.0).toFixed(2);
+                    let limiteKW = ((data.limite_geral_w || 0) / 1000.0).toFixed(2);
+                    
+                    document.getElementById('txt_consumo').innerText = consumoKW;
+                    document.getElementById('txt_limite').innerText = limiteKW;
+
+                    // Processamento dos Dados das Estações
+                    if (data.vagas) {
+                        let totalEstacoes = Object.keys(data.vagas).length;
+                        let recarregandoCount = 0;
+                        let correnteCorrente = 32;
+                        let htmlTabela = '';
+
+                        const estadosAtivos = ["Charging", "Preparing"];
+
+                        for (let idHW in data.vagas) {
+                            let vaga = data.vagas[idHW];
+                            let status = vaga.status || "Available";
+                            
+                            let estaCarregando = estadosAtivos.includes(status);
+                            
+                            if (estaCarregando) {
+                                recarregandoCount++;
+                                correnteCorrente = vaga.corrente_alvo_a || 32;
+                            }
+
+                            // Classificação dos badges visuais do OCPP
+                            let badgeClass = "badge-offline";
+                            if (status === "Charging") {
+                                badgeClass = "badge-charging";
+                            } else if (status === "Available") {
+                                badgeClass = "badge-available";
+                            } else if (status === "SuspendedEV" || status === "SuspendedEVSE" || status === "Preparing") {
+                                badgeClass = "badge-suspended";
+                            }
+
+                            // Define se a estação está Online ou Offline para o LED
+                            let isOffline = (status === "Offline" || status === "Unavailable");
+                            let ledClass = isOffline ? "led-offline" : "led-online";
+                            let ledTitle = isOffline ? "Estação Offline" : "Estação Online";
+
+                            let nomeVaga = vaga.filtro_planilha || idHW;
+
+                            htmlTabela += `
+                                <tr>
+                                    <td>
+                                        <div class="wallbox-name">
+                                            <span class="led-indicator ${ledClass}" title="${ledTitle}"></span>
+                                            <strong>${escapeHTML(nomeVaga)}</strong>
+                                        </div>
+                                    </td>
+                                    <td><code>${escapeHTML(idHW)}</code></td>
+                                    <td><span class="badge-status ${badgeClass}">${escapeHTML(status)}</span></td>
+                                    <td><strong>${vaga.corrente_alvo_a || 32} A</strong></td>
+                                    <td>${(vaga.consumo_acumulado || 0.0).toFixed(2)} kWh</td>
+                                </tr>
+                            `;
+                        }
+
+                        // Atualiza o card de resumo DLB
+                        document.getElementById('txt_carregando').innerText = `${recarregandoCount}/${totalEstacoes}`;
+                        document.getElementById('txt_corrente').innerText = recarregandoCount > 0 ? correnteCorrente : 0;
+
+                        // Renderiza a tabela no DOM
+                        if (totalEstacoes > 0) {
+                            document.getElementById('tabela_vagas').innerHTML = htmlTabela;
+                        } else {
+                            document.getElementById('tabela_vagas').innerHTML = `
+                                <tr><td colspan="5" style="text-align:center;">Nenhuma estação cadastrada no momento.</td></tr>
+                            `;
+                        }
+                    }
+                })
+                .catch(error => {
+                    console.error('Erro de conexão/sincronização com o Google Apps Script:', error);
+                });
+        }
+
+        // Executa a busca imediatamente e agenda a atualização a cada 10 segundos
+        setInterval(atualizarPainel, 10000);
+        atualizarPainel();
+    </script>
 </body>
 </html>
